@@ -18,6 +18,11 @@ jobs:
         java-version: '8'
         distribution: 'temurin'
 
+    - name: Download Parasites Mod
+      run: |
+        mkdir -p ParasiteMimic/libs
+        curl -L -o ParasiteMimic/libs/SRParasites-1.12.2v1.9.21.jar https://mediafilez.forgecdn.net/files/5370/258/SRParasites-1.12.2v1.9.21.jar
+
     - name: Fix line endings and permissions
       run: |
         sed -i -e 's/\r$//' gradlew
