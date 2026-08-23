@@ -1,0 +1,18 @@
+[
+{
+  "modid": "parasitemimic",
+  "name": "Parasite Mimic — Исказитель",
+  "description": "Исказитель требует Scape and Run: Parasites. Cotesia Glomerata — опциональная интеграция (Vagrant).",
+  "version": "1.4.0",
+  "mcversion": "1.12.2",
+  "url": "",
+  "authorList": ["Grok"],
+  "credits": "Scape and Run: Parasites 1.9.21, Cotesia Glomerata",
+  "logoFile": "",
+  "screenshots": [],
+  "useDependencyInformation": true,
+  "requiredMods": ["srparasites"],
+  "dependencies": ["srparasites"],
+  "dependants": []
+}
+]
