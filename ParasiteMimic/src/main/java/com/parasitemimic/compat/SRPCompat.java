@@ -3,6 +3,9 @@ package com.parasitemimic.compat;
 import com.parasitemimic.ParasiteMimic;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityList;
+import net.minecraft.entity.EntityLivingBase;
+import net.minecraft.potion.Potion;
+import net.minecraft.potion.PotionEffect;
 import net.minecraft.util.ResourceLocation;
 import net.minecraft.world.World;
 import net.minecraftforge.fml.common.Loader;
@@ -14,17 +17,11 @@ import java.util.Set;
 
 /**
  * Required Scape and Run: Parasites integration (1.9.x / 1.9.21).
- * Classes are accessed by reflection so this mod still compiles without the SRP jar.
- * At runtime Forge will refuse to load without srparasites ({@code required-after:srparasites}).
  */
 public final class SRPCompat {
 
     public static final String SRP_MODID = "srparasites";
-
-    /** Primitive Исказитель: phase 4 and later (5, 6, 7...). */
     public static final int PRIMITIVE_PHASE = 4;
-
-    /** Adapted Исказитель natural spawn: phase 6 and later. */
     public static final int ADAPTED_PHASE = 6;
 
     private static final Set<String> MOVING_FLESH_IDS = new HashSet<String>(Arrays.asList(
@@ -86,9 +83,33 @@ public final class SRPCompat {
     }
 
     /**
-     * Current SRP evolution phase for this world/dimension.
-     * Returns 0 if phase cannot be read.
+     * Вешает Зов улья (srparasites:coth). SRP сам превратит моба в ассимилированного.
      */
+    public static void applyCoth(EntityLivingBase target) {
+        applyCoth(target, 20 * 180, 0);
+    }
+
+    public static void applyCoth(EntityLivingBase target, int durationTicks, int amplifier) {
+        if (!loaded || target == null || target.world == null || target.world.isRemote) {
+            return;
+        }
+        if (isParasiteEntity(target) || target instanceof com.parasitemimic.entity.EntityParasiteMimic) {
+            return;
+        }
+        Potion coth = Potion.REGISTRY.getObject(new ResourceLocation(SRP_MODID, "coth"));
+        if (coth == null) {
+            return;
+        }
+        PotionEffect existing = target.getActivePotionEffect(coth);
+        int amp = amplifier;
+        int dur = durationTicks;
+        if (existing != null) {
+            amp = Math.max(existing.getAmplifier(), amplifier);
+            dur = Math.max(existing.getDuration(), durationTicks);
+        }
+        target.addPotionEffect(new PotionEffect(coth, dur, amp, false, true));
+    }
+
     public static int getEvolutionPhase(World world) {
         if (world == null) {
             return 0;
@@ -119,7 +140,6 @@ public final class SRPCompat {
         return 0;
     }
 
-    /** Phase 4 and every later phase. */
     public static boolean isPrimitivePhase(World world) {
         if (phaseLookupFailed) {
             return true;
@@ -127,7 +147,6 @@ public final class SRPCompat {
         return getEvolutionPhase(world) >= PRIMITIVE_PHASE;
     }
 
-    /** Phase 6 and every later phase. */
     public static boolean isAdaptedPhase(World world) {
         if (phaseLookupFailed) {
             return true;
