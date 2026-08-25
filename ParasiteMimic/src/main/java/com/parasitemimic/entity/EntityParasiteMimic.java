@@ -249,7 +249,7 @@ public class EntityParasiteMimic extends EntityMob {
                 living.addPotionEffect(new PotionEffect(MobEffects.WITHER, 50, 0));
             }
 
-            // Зов улья SRP → ассимиляция через систему SRP
+            // Зов улья SRP → ассимиляция
             SRPCompat.applyCoth(living);
 
             MahitoDialogue.onAttack(this.world, this.posX, this.posY, this.posZ);
@@ -261,6 +261,7 @@ public class EntityParasiteMimic extends EntityMob {
 
     @Override
     public boolean attackEntityFrom(DamageSource source, float amount) {
+        // Адаптация к урону (как у паразитов SRP)
         if (!this.world.isRemote) {
             amount = adaptation.apply(source, amount, this.isBurning());
         }
