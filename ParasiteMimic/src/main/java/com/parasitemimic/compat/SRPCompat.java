@@ -78,7 +78,7 @@ public final class SRPCompat {
 
     public static boolean isParasiteEntity(Entity entity) {
         ResourceLocation key = keyOf(entity);
-        return key != null && SRP_MODID.equals(key.getResourceDomain());
+        return key != null && SRP_MODID.equals(domainOf(key));
     }
 
     /**
@@ -180,5 +180,11 @@ public final class SRPCompat {
             return null;
         }
         return EntityList.getKey(entity);
+    }
+
+    private static String domainOf(ResourceLocation key) {
+        String s = key.toString();
+        int i = s.indexOf(':');
+        return i >= 0 ? s.substring(0, i) : s;
     }
 }
