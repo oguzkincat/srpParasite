@@ -14,9 +14,11 @@ import net.minecraft.init.SoundEvents;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.potion.PotionEffect;
 import net.minecraft.util.DamageSource;
+import net.minecraft.util.EnumParticleTypes;
 import net.minecraft.util.SoundEvent;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.world.World;
+import net.minecraft.world.WorldServer;
 
 /**
  * Исказитель — примитивный паразит-мимик (фаза 4+).
@@ -117,6 +119,10 @@ public class EntityParasiteMimic extends EntityMob {
             announceSpawn();
         }
 
+        if (this.ticksExisted % 10 == 0) {
+            spawnAmbientParticles();
+        }
+
         if (leapCooldown > 0) leapCooldown--;
         if (roarCooldown > 0) roarCooldown--;
         if (strengthBurstCooldown > 0) strengthBurstCooldown--;
@@ -170,6 +176,7 @@ public class EntityParasiteMimic extends EntityMob {
         this.addPotionEffect(new PotionEffect(MobEffects.RESISTANCE, 90, 0, false, false));
         MahitoDialogue.onStrengthBurst(this.world, this.posX, this.posY, this.posZ);
         this.playSound(SoundEvents.ENTITY_WITHER_AMBIENT, 0.8F, 1.5F);
+        spawnAdaptParticles();
     }
 
     private void endStrengthBurst() {
@@ -180,6 +187,11 @@ public class EntityParasiteMimic extends EntityMob {
     private void performRoar() {
         MahitoDialogue.onRoar(this.world, this.posX, this.posY, this.posZ);
         this.playSound(SoundEvents.ENTITY_ENDERDRAGON_GROWL, 0.7F, 1.6F);
+        if (this.world instanceof WorldServer) {
+            ((WorldServer) this.world).spawnParticle(EnumParticleTypes.SMOKE_LARGE,
+                    this.posX, this.posY + 1.0D, this.posZ,
+                    8, 0.5D, 0.3D, 0.5D, 0.02D);
+        }
         for (EntityLivingBase nearby : this.world.getEntitiesWithinAABB(EntityLivingBase.class,
                 this.getEntityBoundingBox().grow(8.0D))) {
             if (nearby != this && shouldTarget(nearby) && nearby.isEntityAlive()) {
@@ -198,6 +210,7 @@ public class EntityParasiteMimic extends EntityMob {
         } else {
             MahitoDialogue.onSpawn(this.world, this.posX, this.posY, this.posZ);
         }
+        spawnAdaptParticles();
     }
 
     @Override
@@ -224,6 +237,7 @@ public class EntityParasiteMimic extends EntityMob {
         this.world.spawnEntity(adapted);
         this.world.playSound(null, this.posX, this.posY, this.posZ,
                 SoundEvents.ENTITY_WITHER_SPAWN, this.getSoundCategory(), 0.8F, 1.4F);
+        spawnDeathParticles();
         this.setDead();
     }
 
@@ -249,8 +263,16 @@ public class EntityParasiteMimic extends EntityMob {
                 living.addPotionEffect(new PotionEffect(MobEffects.WITHER, 50, 0));
             }
 
-            // Зов улья SRP → ассимиляция
             SRPCompat.applyCoth(living);
+
+            if (this.world instanceof WorldServer) {
+                ((WorldServer) this.world).spawnParticle(EnumParticleTypes.CRIT,
+                        living.posX, living.posY + living.height * 0.5D, living.posZ,
+                        6, 0.25D, 0.3D, 0.25D, 0.15D);
+                ((WorldServer) this.world).spawnParticle(EnumParticleTypes.REDSTONE,
+                        living.posX, living.posY + living.height * 0.5D, living.posZ,
+                        4, 0.2D, 0.25D, 0.2D, 0.0D);
+            }
 
             MahitoDialogue.onAttack(this.world, this.posX, this.posY, this.posZ);
         }
@@ -261,9 +283,13 @@ public class EntityParasiteMimic extends EntityMob {
 
     @Override
     public boolean attackEntityFrom(DamageSource source, float amount) {
-        // Адаптация к урону (как у паразитов SRP)
         if (!this.world.isRemote) {
+            float before = amount;
             amount = adaptation.apply(source, amount, this.isBurning());
+            if (amount < before * 0.95F) {
+                spawnAdaptParticles();
+            }
+            spawnHurtParticles();
         }
         if (!source.isFireDamage() && !source.canHarmInCreative()) {
             amount *= 0.7F;
@@ -277,19 +303,87 @@ public class EntityParasiteMimic extends EntityMob {
 
     @Override
     public void onDeath(DamageSource cause) {
-        if (!this.world.isRemote && !(this instanceof EntityAdaptedParasiteMimic)) {
-            MahitoDialogue.sayNear(this.world, this.posX, this.posY, this.posZ, 24.0D, new String[]{
-                    "Форма разрушена... биомасса ещё здесь.",
-                    "Ха... любопытный исход.",
-                    "Это ещё не конец искажения.",
-                    "Улей заберёт остатки. Не переживай."
-            });
+        if (!this.world.isRemote) {
+            spawnDeathParticles();
+            if (!(this instanceof EntityAdaptedParasiteMimic)) {
+                MahitoDialogue.sayNear(this.world, this.posX, this.posY, this.posZ, 24.0D, new String[]{
+                        "Форма разрушена... биомасса ещё здесь.",
+                        "Ха... любопытный исход.",
+                        "Это ещё не конец искажения.",
+                        "Улей заберёт остатки. Не переживай."
+                });
+            }
         }
         super.onDeath(cause);
     }
 
     public void onDeathWithoutSpeech(DamageSource cause) {
+        if (!this.world.isRemote) {
+            spawnDeathParticles();
+        }
         super.onDeath(cause);
+    }
+
+    private void spawnAmbientParticles() {
+        if (!(this.world instanceof WorldServer)) {
+            return;
+        }
+        WorldServer server = (WorldServer) this.world;
+        double x = this.posX;
+        double y = this.posY + this.height * 0.5D;
+        double z = this.posZ;
+        server.spawnParticle(EnumParticleTypes.REDSTONE, x, y, z, 2, 0.25D, 0.4D, 0.25D, 0.0D);
+        if (this.rand.nextInt(3) == 0) {
+            server.spawnParticle(EnumParticleTypes.PORTAL, x, y, z, 3, 0.3D, 0.5D, 0.3D, 0.15D);
+        }
+        if (this instanceof EntityAdaptedParasiteMimic && this.rand.nextBoolean()) {
+            server.spawnParticle(EnumParticleTypes.SPELL_WITCH, x, y + 0.3D, z, 2, 0.2D, 0.3D, 0.2D, 0.0D);
+        }
+    }
+
+    private void spawnAdaptParticles() {
+        if (!(this.world instanceof WorldServer)) {
+            return;
+        }
+        WorldServer server = (WorldServer) this.world;
+        double x = this.posX;
+        double y = this.posY + this.height * 0.6D;
+        double z = this.posZ;
+        server.spawnParticle(EnumParticleTypes.SPELL_MOB, x, y, z, 12, 0.4D, 0.5D, 0.4D, 0.0D);
+        server.spawnParticle(EnumParticleTypes.CRIT_MAGIC, x, y, z, 8, 0.35D, 0.4D, 0.35D, 0.2D);
+        server.spawnParticle(EnumParticleTypes.REDSTONE, x, y, z, 6, 0.3D, 0.4D, 0.3D, 0.0D);
+    }
+
+    private void spawnHurtParticles() {
+        if (!(this.world instanceof WorldServer)) {
+            return;
+        }
+        WorldServer server = (WorldServer) this.world;
+        server.spawnParticle(EnumParticleTypes.DAMAGE_INDICATOR,
+                this.posX, this.posY + this.height * 0.7D, this.posZ,
+                4, 0.2D, 0.25D, 0.2D, 0.0D);
+        server.spawnParticle(EnumParticleTypes.REDSTONE,
+                this.posX, this.posY + this.height * 0.5D, this.posZ,
+                5, 0.25D, 0.3D, 0.25D, 0.0D);
+    }
+
+    private void spawnDeathParticles() {
+        if (!(this.world instanceof WorldServer)) {
+            return;
+        }
+        WorldServer server = (WorldServer) this.world;
+        server.spawnParticle(EnumParticleTypes.EXPLOSION_NORMAL,
+                this.posX, this.posY + 1.0D, this.posZ,
+                6, 0.4D, 0.4D, 0.4D, 0.05D);
+        server.spawnParticle(EnumParticleTypes.SMOKE_LARGE,
+                this.posX, this.posY + 0.8D, this.posZ,
+                10, 0.35D, 0.4D, 0.35D, 0.02D);
+        server.spawnParticle(EnumParticleTypes.REDSTONE,
+                this.posX, this.posY + 0.8D, this.posZ,
+                15, 0.5D, 0.6D, 0.5D, 0.0D);
+        server.spawnParticle(EnumParticleTypes.PORTAL,
+                this.posX, this.posY + 0.5D, this.posZ,
+                20, 0.4D, 0.6D, 0.4D, 0.3D);
     }
 
     @Override
