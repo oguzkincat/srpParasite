@@ -80,7 +80,7 @@ public final class CotesiaCompat {
         for (PotionEffect effect : effects) {
             Potion potion = effect.getPotion();
             ResourceLocation id = Potion.REGISTRY.getNameForObject(potion);
-            if (id != null && COTESIA_MODID.equals(id.getResourceDomain())) {
+            if (id != null && COTESIA_MODID.equals(domainOf(id))) {
                 return true;
             }
         }
@@ -134,5 +134,11 @@ public final class CotesiaCompat {
             } catch (Throwable ignored) {
             }
         }
+    }
+
+    private static String domainOf(ResourceLocation id) {
+        String s = id.toString();
+        int i = s.indexOf(':');
+        return i >= 0 ? s.substring(0, i) : s;
     }
 }
