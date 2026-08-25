@@ -1,5 +1,6 @@
 package com.parasitemimic.entity;
 
+import net.minecraft.entity.Entity;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
@@ -14,11 +15,21 @@ import java.util.LinkedHashMap;
 import java.util.Random;
 
 /**
- * SRP-style damage adaptation: learn damage sources, stack resistance, cap by tier.
+ * Адаптация урона в стиле SRP:
+ * - учит типы урона / оружие при попаданиях;
+ * - снижает урон от уже изученных источников;
+ * - не учит удушье / пустоту / голод;
+ * - в огне обучение часто срывается.
+ *
+ * Primitive: до 5 типов, макс ~60% резиста.
+ * Adapted:   до 8 типов, макс ~80% резиста.
  */
 public final class ParasiteAdaptation {
 
+    /** Как primitive SRP. */
     public static final Profile PRIMITIVE = new Profile(5, 0.05F, 0.60F, 0.70F, 0.70F);
+
+    /** Как adapted SRP. */
     public static final Profile ADAPTED = new Profile(8, 0.10F, 0.80F, 0.85F, 0.40F);
 
     private static final Random RNG = new Random();
@@ -30,10 +41,14 @@ public final class ParasiteAdaptation {
         this.profile = profile;
     }
 
+    /**
+     * Сначала пытается выучить источник, потом уменьшает урон.
+     */
     public float apply(DamageSource source, float amount, boolean burning) {
         if (amount <= 0.0F || source == null || !canAdapt(source)) {
             return amount;
         }
+
         String key = keyOf(source);
         if (key == null) {
             return amount;
@@ -48,6 +63,7 @@ public final class ParasiteAdaptation {
         if (current == null || current <= 0) {
             return amount;
         }
+
         float reduction = Math.min(profile.cap, current * profile.perHit);
         return amount * (1.0F - reduction);
     }
@@ -55,6 +71,10 @@ public final class ParasiteAdaptation {
     public int getStacks(String key) {
         Integer v = stacks.get(key);
         return v == null ? 0 : v;
+    }
+
+    public int getLearnedTypeCount() {
+        return stacks.size();
     }
 
     public void writeToNBT(NBTTagCompound compound) {
@@ -106,8 +126,10 @@ public final class ParasiteAdaptation {
     }
 
     private static String keyOf(DamageSource source) {
-        if (source.getTrueSource() instanceof EntityPlayer) {
-            EntityPlayer player = (EntityPlayer) source.getTrueSource();
+        Entity trueSource = source.getTrueSource();
+
+        if (trueSource instanceof EntityPlayer) {
+            EntityPlayer player = (EntityPlayer) trueSource;
             ItemStack held = player.getHeldItemMainhand();
             if (!held.isEmpty()) {
                 ResourceLocation id = Item.REGISTRY.getNameForObject(held.getItem());
@@ -115,8 +137,26 @@ public final class ParasiteAdaptation {
                     return "item:" + id.toString();
                 }
             }
-            return "player";
+            return "player:fist";
         }
+
+        if (source.isProjectile()) {
+            String type = source.getDamageType();
+            return "projectile:" + (type == null ? "unknown" : type);
+        }
+
+        if (source.isExplosion()) {
+            return "explosion";
+        }
+
+        if (source.isFireDamage()) {
+            return "fire";
+        }
+
+        if (source.isMagicDamage()) {
+            return "magic:" + (source.getDamageType() == null ? "generic" : source.getDamageType());
+        }
+
         return source.getDamageType() == null ? "generic" : source.getDamageType();
     }
 
