@@ -7,34 +7,36 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
 
     steps:
-    - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    - name: Set up JDK 8
-      uses: actions/setup-java@v4
-      with:
-        java-version: '8'
-        distribution: 'temurin'
+      - name: Set up JDK 8
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "8"
 
-    - name: Download Parasites Mod
-      run: |
-        mkdir -p ParasiteMimic/libs
-        curl -L -o ParasiteMimic/libs/SRParasites-1.12.2v1.9.21.jar https://mediafilez.forgecdn.net/files/5370/258/SRParasites-1.12.2v1.9.21.jar
+      - name: Fix gradlew
+        working-directory: ParasiteMimic
+        run: |
+          sed -i 's/\r$//' gradlew
+          chmod +x gradlew
 
-    - name: Fix line endings and permissions
-      run: |
-        sed -i -e 's/\r$//' gradlew
-        chmod +x gradlew
-      working-directory: ./ParasiteMimic
+      - name: Build with Gradle
+        working-directory: ParasiteMimic
+        env:
+          GRADLE_OPTS: "-Xmx4G -Dfile.encoding=UTF-8 -Dorg.gradle.daemon=false"
+        run: ./gradlew clean build --no-daemon --stacktrace --info
 
-    - name: Build with Gradle
-      run: ./gradlew build
-      working-directory: ./ParasiteMimic
-
-    - name: Upload Mod Jar
-      uses: actions/upload-artifact@v4
-      with:
-        name: ParasiteMimic-JAR
-        path: ParasiteMimic/build/libs/*.jar
+      - name: Upload Mod JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: ParasiteMimic-JAR
+          path: ParasiteMimic/build/libs/*.jar
+          if-no-files-found: error
+          retention-days: 30
+          
