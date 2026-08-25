@@ -19,7 +19,7 @@ import net.minecraft.util.math.MathHelper;
 import net.minecraft.world.World;
 
 /**
- * Исказитель — примитивный паразит-мимик (фаза 4).
+ * Исказитель — примитивный паразит-мимик (фаза 4+).
  * Рождается из слияния движущейся плоти, как остальные primitive.
  */
 public class EntityParasiteMimic extends EntityMob {
@@ -248,6 +248,9 @@ public class EntityParasiteMimic extends EntityMob {
             if (inStrengthBurst) {
                 living.addPotionEffect(new PotionEffect(MobEffects.WITHER, 50, 0));
             }
+
+            // Зов улья SRP → ассимиляция через систему SRP
+            SRPCompat.applyCoth(living);
 
             MahitoDialogue.onAttack(this.world, this.posX, this.posY, this.posZ);
         }
