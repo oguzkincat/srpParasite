@@ -20,7 +20,11 @@ import java.util.Set;
 public final class SRPCompat {
 
     public static final String SRP_MODID = "srparasites";
+
+    /** Primitive Исказитель: phase 4 and later (5, 6, 7...). */
     public static final int PRIMITIVE_PHASE = 4;
+
+    /** Adapted Исказитель natural spawn: phase 6 and later. */
     public static final int ADAPTED_PHASE = 6;
 
     private static final Set<String> MOVING_FLESH_IDS = new HashSet<String>(Arrays.asList(
@@ -115,6 +119,7 @@ public final class SRPCompat {
         return 0;
     }
 
+    /** Phase 4 and every later phase. */
     public static boolean isPrimitivePhase(World world) {
         if (phaseLookupFailed) {
             return true;
@@ -122,6 +127,7 @@ public final class SRPCompat {
         return getEvolutionPhase(world) >= PRIMITIVE_PHASE;
     }
 
+    /** Phase 6 and every later phase. */
     public static boolean isAdaptedPhase(World world) {
         if (phaseLookupFailed) {
             return true;
