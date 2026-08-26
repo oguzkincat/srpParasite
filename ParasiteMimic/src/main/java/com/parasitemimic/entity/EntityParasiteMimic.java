@@ -75,9 +75,6 @@ public class EntityParasiteMimic extends EntityMob {
         this.announcedSpawn = false;
     }
 
-    /**
-     * Навигатор-лазун: обходит препятствия, ходит через двери, плавает.
-     */
     @Override
     protected PathNavigate createNavigator(World worldIn) {
         PathNavigateClimber nav = new PathNavigateClimber(this, worldIn);
@@ -136,7 +133,6 @@ public class EntityParasiteMimic extends EntityMob {
         this.getEntityAttribute(SharedMonsterAttributes.MAX_HEALTH).setBaseValue(70.0D);
         this.getEntityAttribute(SharedMonsterAttributes.MOVEMENT_SPEED).setBaseValue(0.33D);
         this.getEntityAttribute(SharedMonsterAttributes.ATTACK_DAMAGE).setBaseValue(10.0D);
-        // Дальше видит цель → лучше строит путь
         this.getEntityAttribute(SharedMonsterAttributes.FOLLOW_RANGE).setBaseValue(48.0D);
         this.getEntityAttribute(SharedMonsterAttributes.ARMOR).setBaseValue(7.0D);
         this.getEntityAttribute(SharedMonsterAttributes.KNOCKBACK_RESISTANCE).setBaseValue(0.4D);
@@ -184,7 +180,6 @@ public class EntityParasiteMimic extends EntityMob {
             return;
         }
 
-        // Пересчёт короткого пути к цели (обход стен, ям, углов)
         updatePathToTarget(target);
 
         double distSq = this.getDistanceSq(target);
@@ -215,17 +210,12 @@ public class EntityParasiteMimic extends EntityMob {
         }
     }
 
-    /**
-     * Каждые 15 тиков перестраивает путь к цели, если пути нет
-     * или цель далеко — A* обходит препятствия.
-     */
     private void updatePathToTarget(EntityLivingBase target) {
         if (this.ticksExisted % 15 != 0) {
             return;
         }
         PathNavigate nav = this.getNavigator();
         double distSq = this.getDistanceSq(target);
-        // Если пути нет, путь закончился, или цель заметно сдвинулась — новый маршрут
         if (nav.noPath() || distSq > 2.25D) {
             nav.tryMoveToEntityLiving(target, 1.25D);
         }
@@ -523,14 +513,31 @@ public class EntityParasiteMimic extends EntityMob {
             }
             spawnHurtParticles();
         }
-        if (!source.isFireDamage() && !source.canHarmInCreative()) {
+
+        // Слабость к огню, как у SRP-паразитов
+        if (source.isFireDamage()) {
+            amount *= 1.75F;
+        } else if (!source.canHarmInCreative()) {
             amount *= 0.7F;
         }
+
         boolean result = super.attackEntityFrom(source, amount);
         if (result && !this.world.isRemote) {
             MahitoDialogue.onHurt(this.world, this.posX, this.posY, this.posZ);
         }
         return result;
+    }
+
+    /** Горение жжёт сильнее. */
+    @Override
+    protected void dealFireDamage(int amount) {
+        super.dealFireDamage(Math.max(1, amount * 2));
+    }
+
+    /** Дольше горит после поджога. */
+    @Override
+    public void setFire(int seconds) {
+        super.setFire(Math.max(seconds, seconds + 4));
     }
 
     @Override
