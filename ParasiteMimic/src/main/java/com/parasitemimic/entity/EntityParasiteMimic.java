@@ -3,19 +3,26 @@ package com.parasitemimic.entity;
 import com.parasitemimic.compat.CotesiaCompat;
 import com.parasitemimic.compat.SRPCompat;
 import com.parasitemimic.dialogue.MahitoDialogue;
+import net.minecraft.block.Block;
+import net.minecraft.block.BlockDoor;
+import net.minecraft.block.material.Material;
+import net.minecraft.block.state.IBlockState;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.entity.SharedMonsterAttributes;
 import net.minecraft.entity.ai.*;
 import net.minecraft.entity.monster.EntityMob;
 import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.init.Blocks;
 import net.minecraft.init.MobEffects;
 import net.minecraft.init.SoundEvents;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.potion.PotionEffect;
 import net.minecraft.util.DamageSource;
+import net.minecraft.util.EnumFacing;
 import net.minecraft.util.EnumParticleTypes;
 import net.minecraft.util.SoundEvent;
+import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.world.World;
 import net.minecraft.world.WorldServer;
@@ -36,6 +43,13 @@ public class EntityParasiteMimic extends EntityMob {
     protected boolean evolvedFromPrimitive;
     private int killCount;
     private final ParasiteAdaptation adaptation = new ParasiteAdaptation(adaptationProfile());
+
+    /** Прогресс выламывания двери. */
+    private int doorBreakProgress;
+    private BlockPos doorBreakingPos;
+    /** Дерево ~2.5 сек, железо ~8 сек. */
+    private static final int WOOD_DOOR_BREAK_TICKS = 50;
+    private static final int IRON_DOOR_BREAK_TICKS = 160;
 
     public EntityParasiteMimic(World worldIn) {
         super(worldIn);
@@ -85,7 +99,6 @@ public class EntityParasiteMimic extends EntityMob {
         if (SRPCompat.isParasiteEntity(living) || SRPCompat.isMovingFlesh(living)) {
             return false;
         }
-        // Уже COTH III — моба не трогаем
         if (!(living instanceof EntityPlayer) && SRPCompat.hasCothAtLeast(living, 2)) {
             return false;
         }
@@ -127,6 +140,8 @@ public class EntityParasiteMimic extends EntityMob {
             spawnAmbientParticles();
         }
 
+        tryBreakDoors();
+
         if (leapCooldown > 0) leapCooldown--;
         if (roarCooldown > 0) roarCooldown--;
         if (strengthBurstCooldown > 0) strengthBurstCooldown--;
@@ -143,7 +158,6 @@ public class EntityParasiteMimic extends EntityMob {
             return;
         }
 
-        // Заражённый COTH III моб — отпускаем
         if (!(target instanceof EntityPlayer) && SRPCompat.hasCothAtLeast(target, 2)) {
             this.setAttackTarget(null);
             endStrengthBurst();
@@ -176,6 +190,142 @@ public class EntityParasiteMimic extends EntityMob {
             performRoar();
             this.roarCooldown = 160;
         }
+    }
+
+    /**
+     * Ломает двери на пути к цели.
+     * Дерево — быстро, железо — дольше, камень/твёрдое — нельзя.
+     */
+    private void tryBreakDoors() {
+        if (this.world.isRemote) {
+            return;
+        }
+
+        EntityLivingBase target = this.getAttackTarget();
+        if (target == null) {
+            resetDoorBreak();
+            return;
+        }
+
+        EnumFacing facing = this.getHorizontalFacing();
+        BlockPos feet = new BlockPos(this.posX, this.posY, this.posZ);
+        BlockPos[] candidates = new BlockPos[] {
+                feet.offset(facing),
+                feet.offset(facing).up(),
+                feet.up().offset(facing)
+        };
+
+        BlockPos doorPos = null;
+        IBlockState doorState = null;
+        int breakTicks = -1;
+        boolean ironDoor = false;
+
+        for (BlockPos pos : candidates) {
+            IBlockState state = this.world.getBlockState(pos);
+            Block block = state.getBlock();
+            if (!(block instanceof BlockDoor)) {
+                continue;
+            }
+            if (state.getValue(BlockDoor.HALF) != BlockDoor.EnumDoorHalf.LOWER) {
+                pos = pos.down();
+                state = this.world.getBlockState(pos);
+                block = state.getBlock();
+                if (!(block instanceof BlockDoor)) {
+                    continue;
+                }
+            }
+
+            Material mat = state.getMaterial();
+            if (mat == Material.WOOD) {
+                breakTicks = WOOD_DOOR_BREAK_TICKS;
+                doorPos = pos;
+                doorState = state;
+                ironDoor = false;
+                break;
+            }
+            if (block == Blocks.IRON_DOOR || mat == Material.IRON) {
+                breakTicks = IRON_DOOR_BREAK_TICKS;
+                doorPos = pos;
+                doorState = state;
+                ironDoor = true;
+                break;
+            }
+        }
+
+        if (doorPos == null || breakTicks < 0) {
+            resetDoorBreak();
+            return;
+        }
+
+        if (this.doorBreakingPos == null || !this.doorBreakingPos.equals(doorPos)) {
+            this.doorBreakingPos = doorPos.toImmutable();
+            this.doorBreakProgress = 0;
+            if (ironDoor) {
+                this.playSound(SoundEvents.ENTITY_ZOMBIE_ATTACK_IRON_DOOR, 0.9F, 0.85F);
+            } else {
+                this.playSound(SoundEvents.ENTITY_ZOMBIE_ATTACK_DOOR_WOOD, 0.9F, 1.0F);
+            }
+        }
+
+        this.doorBreakProgress++;
+
+        if (this.doorBreakProgress % 10 == 0) {
+            float progress = (float) this.doorBreakProgress / (float) breakTicks;
+            float pitch = 0.85F + progress * 0.35F + this.rand.nextFloat() * 0.1F;
+
+            if (ironDoor) {
+                this.world.playEvent(1020, doorPos, 0);
+                this.playSound(SoundEvents.ENTITY_ZOMBIE_ATTACK_IRON_DOOR, 0.85F, pitch);
+                this.playSound(SoundEvents.BLOCK_ANVIL_LAND, 0.25F, 1.4F + this.rand.nextFloat() * 0.2F);
+            } else {
+                this.world.playEvent(1019, doorPos, 0);
+                this.playSound(SoundEvents.ENTITY_ZOMBIE_ATTACK_DOOR_WOOD, 0.85F, pitch);
+            }
+        }
+
+        if (this.doorBreakProgress == breakTicks - 15 || this.doorBreakProgress == breakTicks - 5) {
+            if (ironDoor) {
+                this.playSound(SoundEvents.BLOCK_ANVIL_PLACE, 0.5F, 1.6F);
+            } else {
+                this.playSound(SoundEvents.BLOCK_WOOD_BREAK, 0.7F, 0.8F);
+            }
+        }
+
+        if (this.world instanceof WorldServer && this.doorBreakProgress % 5 == 0) {
+            ((WorldServer) this.world).spawnParticle(EnumParticleTypes.BLOCK_CRACK,
+                    doorPos.getX() + 0.5D, doorPos.getY() + 0.5D, doorPos.getZ() + 0.5D,
+                    4, 0.25D, 0.25D, 0.25D, 0.05D,
+                    Block.getStateId(doorState));
+        }
+
+        if (this.doorBreakProgress >= breakTicks) {
+            IBlockState lower = this.world.getBlockState(doorPos);
+            if (lower.getBlock() instanceof BlockDoor) {
+                this.world.setBlockToAir(doorPos.up());
+                this.world.setBlockToAir(doorPos);
+
+                this.world.playEvent(1021, doorPos, 0);
+                if (ironDoor) {
+                    this.playSound(SoundEvents.ENTITY_ZOMBIE_BREAK_DOOR_WOOD, 1.0F, 0.7F);
+                    this.playSound(SoundEvents.BLOCK_ANVIL_DESTROY, 0.7F, 1.1F);
+                } else {
+                    this.playSound(SoundEvents.ENTITY_ZOMBIE_BREAK_DOOR_WOOD, 1.0F, 1.0F);
+                    this.playSound(SoundEvents.BLOCK_WOOD_BREAK, 1.0F, 0.9F);
+                }
+
+                if (this.world instanceof WorldServer) {
+                    ((WorldServer) this.world).spawnParticle(EnumParticleTypes.EXPLOSION_NORMAL,
+                            doorPos.getX() + 0.5D, doorPos.getY() + 1.0D, doorPos.getZ() + 0.5D,
+                            6, 0.3D, 0.4D, 0.3D, 0.02D);
+                }
+            }
+            resetDoorBreak();
+        }
+    }
+
+    private void resetDoorBreak() {
+        this.doorBreakProgress = 0;
+        this.doorBreakingPos = null;
     }
 
     private void startStrengthBurst() {
@@ -259,7 +409,7 @@ public class EntityParasiteMimic extends EntityMob {
         }
         EntityLivingBase living = (EntityLivingBase) target;
 
-        // === ИГРОК: 10 урона, не отстаёт до убийства ===
+        // ИГРОК: 10 урона, преследует до смерти
         if (living instanceof EntityPlayer) {
             boolean hit = living.attackEntityFrom(DamageSource.causeMobDamage(this), 10.0F);
             if (hit) {
@@ -285,10 +435,7 @@ public class EntityParasiteMimic extends EntityMob {
             return hit;
         }
 
-        // === МОБ ===
-        // Всегда COTH III без attackEntityFrom.
-        // HP > 5 сердец → опускаем до 10 HP + лёгкий knockback.
-        // HP ≤ 5 сердец → только COTH, HP не трогаем, knockback нет.
+        // МОБ: COTH III; >5 сердец → 10 HP; ≤5 → только инфекция
         SRPCompat.applyCoth(living);
 
         if (living.getHealth() > 10.0F) {
