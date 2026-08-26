@@ -85,6 +85,10 @@ public class EntityParasiteMimic extends EntityMob {
         if (SRPCompat.isParasiteEntity(living) || SRPCompat.isMovingFlesh(living)) {
             return false;
         }
+        // Уже COTH III — моба не трогаем
+        if (!(living instanceof EntityPlayer) && SRPCompat.hasCothAtLeast(living, 2)) {
+            return false;
+        }
         if (living instanceof EntityPlayer) {
             EntityPlayer player = (EntityPlayer) living;
             if (player.isCreative() || player.isSpectator()) {
@@ -135,6 +139,13 @@ public class EntityParasiteMimic extends EntityMob {
 
         EntityLivingBase target = this.getAttackTarget();
         if (target == null || !target.isEntityAlive()) {
+            endStrengthBurst();
+            return;
+        }
+
+        // Заражённый COTH III моб — отпускаем
+        if (!(target instanceof EntityPlayer) && SRPCompat.hasCothAtLeast(target, 2)) {
+            this.setAttackTarget(null);
             endStrengthBurst();
             return;
         }
@@ -243,42 +254,62 @@ public class EntityParasiteMimic extends EntityMob {
 
     @Override
     public boolean attackEntityAsMob(Entity target) {
-        float damage = (float) this.getEntityAttribute(SharedMonsterAttributes.ATTACK_DAMAGE).getAttributeValue();
-        if (inStrengthBurst) {
-            damage *= 1.6F;
+        if (!(target instanceof EntityLivingBase)) {
+            return super.attackEntityAsMob(target);
+        }
+        EntityLivingBase living = (EntityLivingBase) target;
+
+        // === ИГРОК: 10 урона, не отстаёт до убийства ===
+        if (living instanceof EntityPlayer) {
+            boolean hit = living.attackEntityFrom(DamageSource.causeMobDamage(this), 10.0F);
+            if (hit) {
+                living.knockBack(this, inStrengthBurst ? 1.35F : 0.8F,
+                        MathHelper.sin(this.rotationYaw * 0.017453292F),
+                        -MathHelper.cos(this.rotationYaw * 0.017453292F));
+                living.addPotionEffect(new PotionEffect(MobEffects.HUNGER, 120, 1));
+                if (inStrengthBurst) {
+                    living.addPotionEffect(new PotionEffect(MobEffects.WITHER, 50, 0));
+                }
+                SRPCompat.applyCoth(living);
+                if (this.world instanceof WorldServer) {
+                    ((WorldServer) this.world).spawnParticle(EnumParticleTypes.CRIT,
+                            living.posX, living.posY + living.height * 0.5D, living.posZ,
+                            6, 0.25D, 0.3D, 0.25D, 0.15D);
+                    ((WorldServer) this.world).spawnParticle(EnumParticleTypes.REDSTONE,
+                            living.posX, living.posY + living.height * 0.5D, living.posZ,
+                            4, 0.2D, 0.25D, 0.2D, 0.0D);
+                }
+                MahitoDialogue.onAttack(this.world, this.posX, this.posY, this.posZ);
+            }
+            this.playSound(SoundEvents.ENTITY_PLAYER_ATTACK_STRONG, 1.0F, 0.85F);
+            return hit;
         }
 
-        boolean hit = target.attackEntityFrom(DamageSource.causeMobDamage(this), damage);
+        // === МОБ: COTH III, 5 сердец (10 HP), теряет интерес ===
+        living.knockBack(this, 0.6F,
+                MathHelper.sin(this.rotationYaw * 0.017453292F),
+                -MathHelper.cos(this.rotationYaw * 0.017453292F));
 
-        if (hit && target instanceof EntityLivingBase) {
-            EntityLivingBase living = (EntityLivingBase) target;
+        SRPCompat.applyCoth(living);
 
-            living.knockBack(this, inStrengthBurst ? 1.35F : 0.8F,
-                    MathHelper.sin(this.rotationYaw * 0.017453292F),
-                    -MathHelper.cos(this.rotationYaw * 0.017453292F));
-
-            living.addPotionEffect(new PotionEffect(MobEffects.HUNGER, 120, 1));
-            living.addPotionEffect(new PotionEffect(MobEffects.POISON, 80, 0));
-            if (inStrengthBurst) {
-                living.addPotionEffect(new PotionEffect(MobEffects.WITHER, 50, 0));
-            }
-
-            SRPCompat.applyCoth(living);
-
-            if (this.world instanceof WorldServer) {
-                ((WorldServer) this.world).spawnParticle(EnumParticleTypes.CRIT,
-                        living.posX, living.posY + living.height * 0.5D, living.posZ,
-                        6, 0.25D, 0.3D, 0.25D, 0.15D);
-                ((WorldServer) this.world).spawnParticle(EnumParticleTypes.REDSTONE,
-                        living.posX, living.posY + living.height * 0.5D, living.posZ,
-                        4, 0.2D, 0.25D, 0.2D, 0.0D);
-            }
-
-            MahitoDialogue.onAttack(this.world, this.posX, this.posY, this.posZ);
+        if (living.getHealth() > 10.0F) {
+            living.setHealth(10.0F);
         }
 
+        this.setAttackTarget(null);
+
+        if (this.world instanceof WorldServer) {
+            ((WorldServer) this.world).spawnParticle(EnumParticleTypes.SPELL_WITCH,
+                    living.posX, living.posY + living.height * 0.5D, living.posZ,
+                    10, 0.3D, 0.4D, 0.3D, 0.0D);
+            ((WorldServer) this.world).spawnParticle(EnumParticleTypes.REDSTONE,
+                    living.posX, living.posY + living.height * 0.5D, living.posZ,
+                    6, 0.25D, 0.3D, 0.25D, 0.0D);
+        }
+
+        MahitoDialogue.onAttack(this.world, this.posX, this.posY, this.posZ);
         this.playSound(SoundEvents.ENTITY_PLAYER_ATTACK_STRONG, 1.0F, 0.85F);
-        return hit;
+        return true;
     }
 
     @Override
