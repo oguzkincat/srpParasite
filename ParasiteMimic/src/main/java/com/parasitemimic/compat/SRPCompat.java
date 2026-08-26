@@ -83,10 +83,11 @@ public final class SRPCompat {
     }
 
     /**
-     * Вешает Зов улья (srparasites:coth). SRP сам превратит моба в ассимилированного.
+     * COTH III (amplifier 2). Длительность ~5 мин.
+     * SRP сам ассимилирует моба.
      */
     public static void applyCoth(EntityLivingBase target) {
-        applyCoth(target, 20 * 180, 0);
+        applyCoth(target, 20 * 300, 2);
     }
 
     public static void applyCoth(EntityLivingBase target, int durationTicks, int amplifier) {
@@ -108,6 +109,19 @@ public final class SRPCompat {
             dur = Math.max(existing.getDuration(), durationTicks);
         }
         target.addPotionEffect(new PotionEffect(coth, dur, amp, false, true));
+    }
+
+    /** Есть ли COTH не ниже уровня (0=I, 1=II, 2=III). */
+    public static boolean hasCothAtLeast(EntityLivingBase target, int minAmplifier) {
+        if (!loaded || target == null) {
+            return false;
+        }
+        Potion coth = Potion.REGISTRY.getObject(new ResourceLocation(SRP_MODID, "coth"));
+        if (coth == null) {
+            return false;
+        }
+        PotionEffect effect = target.getActivePotionEffect(coth);
+        return effect != null && effect.getAmplifier() >= minAmplifier;
     }
 
     public static int getEvolutionPhase(World world) {
