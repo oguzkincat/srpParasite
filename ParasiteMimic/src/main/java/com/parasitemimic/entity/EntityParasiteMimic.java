@@ -17,6 +17,8 @@ import net.minecraft.init.Blocks;
 import net.minecraft.init.MobEffects;
 import net.minecraft.init.SoundEvents;
 import net.minecraft.nbt.NBTTagCompound;
+import net.minecraft.pathfinding.PathNavigate;
+import net.minecraft.pathfinding.PathNavigateClimber;
 import net.minecraft.potion.PotionEffect;
 import net.minecraft.util.DamageSource;
 import net.minecraft.util.EnumFacing;
@@ -29,7 +31,6 @@ import net.minecraft.world.WorldServer;
 
 /**
  * Исказитель — примитивный паразит-мимик (фаза 4+).
- * Рождается из слияния движущейся плоти, как остальные primitive.
  */
 public class EntityParasiteMimic extends EntityMob {
 
@@ -44,12 +45,12 @@ public class EntityParasiteMimic extends EntityMob {
     private int killCount;
     private final ParasiteAdaptation adaptation = new ParasiteAdaptation(adaptationProfile());
 
-    /** Прогресс выламывания двери. */
     private int doorBreakProgress;
     private BlockPos doorBreakingPos;
-    /** Дерево ~2.5 сек, железо ~8 сек. */
     private static final int WOOD_DOOR_BREAK_TICKS = 50;
     private static final int IRON_DOOR_BREAK_TICKS = 160;
+
+    private boolean climbing;
 
     public EntityParasiteMimic(World worldIn) {
         super(worldIn);
@@ -74,12 +75,29 @@ public class EntityParasiteMimic extends EntityMob {
         this.announcedSpawn = false;
     }
 
+    /**
+     * Навигатор-лазун: обходит препятствия, ходит через двери, плавает.
+     */
+    @Override
+    protected PathNavigate createNavigator(World worldIn) {
+        PathNavigateClimber nav = new PathNavigateClimber(this, worldIn);
+        nav.setCanSwim(true);
+        nav.setEnterDoors(true);
+        nav.setBreakDoors(true);
+        return nav;
+    }
+
+    @Override
+    public boolean isOnLadder() {
+        return this.climbing || super.isOnLadder();
+    }
+
     @Override
     protected void initEntityAI() {
         this.tasks.addTask(0, new EntityAISwimming(this));
         this.tasks.addTask(1, new EntityAIAttackMelee(this, 1.3D, true));
         this.tasks.addTask(2, new EntityAILeapAtTarget(this, 0.5F));
-        this.tasks.addTask(3, new EntityAIWanderAvoidWater(this, 0.95D));
+        this.tasks.addTask(3, new EntityAIWanderAvoidWater(this, 1.0D));
         this.tasks.addTask(4, new EntityAIWatchClosest(this, EntityPlayer.class, 16.0F));
         this.tasks.addTask(5, new EntityAILookIdle(this));
 
@@ -118,7 +136,8 @@ public class EntityParasiteMimic extends EntityMob {
         this.getEntityAttribute(SharedMonsterAttributes.MAX_HEALTH).setBaseValue(70.0D);
         this.getEntityAttribute(SharedMonsterAttributes.MOVEMENT_SPEED).setBaseValue(0.33D);
         this.getEntityAttribute(SharedMonsterAttributes.ATTACK_DAMAGE).setBaseValue(10.0D);
-        this.getEntityAttribute(SharedMonsterAttributes.FOLLOW_RANGE).setBaseValue(36.0D);
+        // Дальше видит цель → лучше строит путь
+        this.getEntityAttribute(SharedMonsterAttributes.FOLLOW_RANGE).setBaseValue(48.0D);
         this.getEntityAttribute(SharedMonsterAttributes.ARMOR).setBaseValue(7.0D);
         this.getEntityAttribute(SharedMonsterAttributes.KNOCKBACK_RESISTANCE).setBaseValue(0.4D);
     }
@@ -141,6 +160,7 @@ public class EntityParasiteMimic extends EntityMob {
         }
 
         tryBreakDoors();
+        updateWallClimb();
 
         if (leapCooldown > 0) leapCooldown--;
         if (roarCooldown > 0) roarCooldown--;
@@ -164,6 +184,9 @@ public class EntityParasiteMimic extends EntityMob {
             return;
         }
 
+        // Пересчёт короткого пути к цели (обход стен, ям, углов)
+        updatePathToTarget(target);
+
         double distSq = this.getDistanceSq(target);
 
         if (strengthBurstCooldown <= 0 && distSq < 100.0D) {
@@ -176,7 +199,7 @@ public class EntityParasiteMimic extends EntityMob {
             }
         }
 
-        if (leapCooldown <= 0 && distSq > 9.0D && distSq < 64.0D && this.onGround) {
+        if (leapCooldown <= 0 && distSq > 9.0D && distSq < 64.0D && this.onGround && !this.climbing) {
             double dx = target.posX - this.posX;
             double dz = target.posZ - this.posZ;
             this.motionX += dx * 0.18D;
@@ -193,9 +216,42 @@ public class EntityParasiteMimic extends EntityMob {
     }
 
     /**
-     * Ломает двери на пути к цели.
-     * Дерево — быстро, железо — дольше, камень/твёрдое — нельзя.
+     * Каждые 15 тиков перестраивает путь к цели, если пути нет
+     * или цель далеко — A* обходит препятствия.
      */
+    private void updatePathToTarget(EntityLivingBase target) {
+        if (this.ticksExisted % 15 != 0) {
+            return;
+        }
+        PathNavigate nav = this.getNavigator();
+        double distSq = this.getDistanceSq(target);
+        // Если пути нет, путь закончился, или цель заметно сдвинулась — новый маршрут
+        if (nav.noPath() || distSq > 2.25D) {
+            nav.tryMoveToEntityLiving(target, 1.25D);
+        }
+    }
+
+    private void updateWallClimb() {
+        EntityLivingBase target = this.getAttackTarget();
+        boolean wantClimb = false;
+
+        if (target != null && target.isEntityAlive()) {
+            double dy = target.posY - this.posY;
+            if (dy > 1.8D && this.collidedHorizontally) {
+                wantClimb = true;
+            }
+        }
+
+        this.climbing = wantClimb;
+
+        if (wantClimb) {
+            if (this.motionY < 0.25D) {
+                this.motionY = 0.25D;
+            }
+            this.fallDistance = 0.0F;
+        }
+    }
+
     private void tryBreakDoors() {
         if (this.world.isRemote) {
             return;
@@ -303,7 +359,6 @@ public class EntityParasiteMimic extends EntityMob {
             if (lower.getBlock() instanceof BlockDoor) {
                 this.world.setBlockToAir(doorPos.up());
                 this.world.setBlockToAir(doorPos);
-
                 this.world.playEvent(1021, doorPos, 0);
                 if (ironDoor) {
                     this.playSound(SoundEvents.ENTITY_ZOMBIE_BREAK_DOOR_WOOD, 1.0F, 0.7F);
@@ -312,7 +367,6 @@ public class EntityParasiteMimic extends EntityMob {
                     this.playSound(SoundEvents.ENTITY_ZOMBIE_BREAK_DOOR_WOOD, 1.0F, 1.0F);
                     this.playSound(SoundEvents.BLOCK_WOOD_BREAK, 1.0F, 0.9F);
                 }
-
                 if (this.world instanceof WorldServer) {
                     ((WorldServer) this.world).spawnParticle(EnumParticleTypes.EXPLOSION_NORMAL,
                             doorPos.getX() + 0.5D, doorPos.getY() + 1.0D, doorPos.getZ() + 0.5D,
@@ -409,7 +463,6 @@ public class EntityParasiteMimic extends EntityMob {
         }
         EntityLivingBase living = (EntityLivingBase) target;
 
-        // ИГРОК: 10 урона, преследует до смерти
         if (living instanceof EntityPlayer) {
             boolean hit = living.attackEntityFrom(DamageSource.causeMobDamage(this), 10.0F);
             if (hit) {
@@ -435,7 +488,6 @@ public class EntityParasiteMimic extends EntityMob {
             return hit;
         }
 
-        // МОБ: COTH III; >5 сердец → 10 HP; ≤5 → только инфекция
         SRPCompat.applyCoth(living);
 
         if (living.getHealth() > 10.0F) {
