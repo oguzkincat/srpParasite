@@ -285,15 +285,17 @@ public class EntityParasiteMimic extends EntityMob {
             return hit;
         }
 
-        // === МОБ: COTH III, 5 сердец (10 HP), теряет интерес ===
-        living.knockBack(this, 0.6F,
-                MathHelper.sin(this.rotationYaw * 0.017453292F),
-                -MathHelper.cos(this.rotationYaw * 0.017453292F));
-
+        // === МОБ ===
+        // Всегда COTH III без attackEntityFrom.
+        // HP > 5 сердец → опускаем до 10 HP + лёгкий knockback.
+        // HP ≤ 5 сердец → только COTH, HP не трогаем, knockback нет.
         SRPCompat.applyCoth(living);
 
         if (living.getHealth() > 10.0F) {
             living.setHealth(10.0F);
+            living.knockBack(this, 0.6F,
+                    MathHelper.sin(this.rotationYaw * 0.017453292F),
+                    -MathHelper.cos(this.rotationYaw * 0.017453292F));
         }
 
         this.setAttackTarget(null);
